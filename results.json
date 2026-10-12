@@ -1,0 +1,122 @@
+[
+  {
+    "subject": "hand",
+    "noise": 0,
+    "seconds": 1.17,
+    "input_sha256": "d90a6b11ed9d59aae9e0bd96ec0bac56e7f563b05fa3f6abf9d646b409d441e6",
+    "anchors": 288847,
+    "colors": 21,
+    "id": 66343,
+    "paths": 53267
+  },
+  {
+    "subject": "hand",
+    "noise": 12,
+    "seconds": 0.17,
+    "input_sha256": "d90a6b11ed9d59aae9e0bd96ec0bac56e7f563b05fa3f6abf9d646b409d441e6",
+    "anchors": 36009,
+    "colors": 21,
+    "id": 2107,
+    "paths": 1757
+  },
+  {
+    "subject": "hand",
+    "noise": 25,
+    "seconds": 0.16,
+    "input_sha256": "d90a6b11ed9d59aae9e0bd96ec0bac56e7f563b05fa3f6abf9d646b409d441e6",
+    "anchors": 31329,
+    "colors": 21,
+    "id": 1146,
+    "paths": 1011
+  },
+  {
+    "subject": "hand",
+    "noise": 50,
+    "seconds": 0.16,
+    "input_sha256": "d90a6b11ed9d59aae9e0bd96ec0bac56e7f563b05fa3f6abf9d646b409d441e6",
+    "anchors": 28338,
+    "colors": 21,
+    "id": 719,
+    "paths": 651
+  },
+  {
+    "subject": "hand",
+    "noise": 100,
+    "seconds": 0.15,
+    "input_sha256": "d90a6b11ed9d59aae9e0bd96ec0bac56e7f563b05fa3f6abf9d646b409d441e6",
+    "anchors": 25907,
+    "colors": 21,
+    "id": 470,
+    "paths": 437
+  },
+  {
+    "subject": "hand",
+    "noise": 200,
+    "seconds": 0.14,
+    "input_sha256": "d90a6b11ed9d59aae9e0bd96ec0bac56e7f563b05fa3f6abf9d646b409d441e6",
+    "anchors": 23248,
+    "colors": 21,
+    "id": 325,
+    "paths": 307
+  },
+  {
+    "subject": "ivy",
+    "noise": 0,
+    "seconds": 0.88,
+    "input_sha256": "df5fb9a1feeabba10efafcd5b8cca5ea5d79817e36807b460f25d947666afd98",
+    "anchors": 534297,
+    "colors": 21,
+    "id": 128854,
+    "paths": 119876
+  },
+  {
+    "subject": "ivy",
+    "noise": 12,
+    "seconds": 0.31,
+    "input_sha256": "df5fb9a1feeabba10efafcd5b8cca5ea5d79817e36807b460f25d947666afd98",
+    "anchors": 66196,
+    "colors": 21,
+    "id": 7149,
+    "paths": 6410
+  },
+  {
+    "subject": "ivy",
+    "noise": 25,
+    "seconds": 0.27,
+    "input_sha256": "df5fb9a1feeabba10efafcd5b8cca5ea5d79817e36807b460f25d947666afd98",
+    "anchors": 52579,
+    "colors": 21,
+    "id": 3745,
+    "paths": 3418
+  },
+  {
+    "subject": "ivy",
+    "noise": 50,
+    "seconds": 0.24,
+    "input_sha256": "df5fb9a1feeabba10efafcd5b8cca5ea5d79817e36807b460f25d947666afd98",
+    "anchors": 43163,
+    "colors": 21,
+    "id": 2143,
+    "paths": 2003
+  },
+  {
+    "subject": "ivy",
+    "noise": 100,
+    "seconds": 0.22,
+    "input_sha256": "df5fb9a1feeabba10efafcd5b8cca5ea5d79817e36807b460f25d947666afd98",
+    "anchors": 35311,
+    "colors": 21,
+    "id": 1220,
+    "paths": 1167
+  },
+  {
+    "subject": "ivy",
+    "noise": 200,
+    "seconds": 0.2,
+    "input_sha256": "df5fb9a1feeabba10efafcd5b8cca5ea5d79817e36807b460f25d947666afd98",
+    "anchors": 28280,
+    "colors": 21,
+    "id": 698,
+    "paths": 672
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "preset": "16 Colors",
+  "params": {
+    "colors": 21,
+    "ignoreWhite": false,
+    "noise": 200,
+    "paths": 65,
+    "corners": 60,
+    "method": "abutting"
+  }
+}
