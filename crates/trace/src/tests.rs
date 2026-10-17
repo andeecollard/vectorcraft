@@ -1410,3 +1410,112 @@ fn grayscale_gradients_are_grey() {
     }
     assert!(res.palette.iter().all(|&c| grey(c)), "{:?}", res.palette);
 }
+
+/// A seeded picture of soft-edged blobs in `colors` colours over a ramp, with pixel noise and a
+/// few one-pixel slivers: many regions, junctions, thin pieces and holes.
+fn blobs(seed: u64, w: u32, h: u32, colors: usize) -> Raster {
+    let mut s = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+    let mut next = move || {
+        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        ((s >> 33) as f64) / f64::from(1u32 << 31)
+    };
+    let palette: Vec<[f64; 3]> = (0..colors).map(|_| [next() * 255.0, next() * 255.0, next() * 255.0]).collect();
+    let blobs: Vec<(f64, f64, f64, usize)> =
+        (0..colors * 3).map(|i| (next() * f64::from(w), next() * f64::from(h), 3.0 + next() * f64::from(w) / 4.0, i % colors)).collect();
+    let noise: Vec<f64> = (0..w * h).map(|_| next()).collect();
+    Raster::from_fn(w, h, |x, y| {
+        let (fx, fy) = (f64::from(x) + 0.5, f64::from(y) + 0.5);
+        let mut c = [fx / f64::from(w) * 200.0, fy / f64::from(h) * 200.0, 120.0];
+        for &(cx, cy, r, k) in &blobs {
+            // About a pixel of anti-aliasing at the edge.
+            let t = (r - ((fx - cx).powi(2) + (fy - cy).powi(2)).sqrt() + 0.5).clamp(0.0, 1.0);
+            c = [0, 1, 2].map(|i| c[i] + (palette[k][i] - c[i]) * t);
+        }
+        if x % 11 == 5 {
+            c = palette[0];
+        }
+        let n = noise.get((y * w + x) as usize).copied().unwrap_or(0.0);
+        let c = c.map(|v| (v + (n - 0.5) * 40.0).round().clamp(0.0, 255.0) as u8);
+        [c[0], c[1], c[2], 255]
+    })
+}
+
+/// An SVG of a trace, each coordinate written exactly (shortest round-trip form).
+fn svg(res: &TraceResult, w: u32, h: u32) -> String {
+    let mut out = format!("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\">\n");
+    for p in &res.paths {
+        let mut d = String::new();
+        for sp in &p.path.subpaths {
+            let a = &sp.anchors;
+            let Some(first) = a.first() else { continue };
+            d += &format!("M{} {}", first.p.x, first.p.y);
+            let n = a.len();
+            for i in 1..if sp.closed { n + 1 } else { n } {
+                let (from, to) = (&a[i - 1], &a[i % n]);
+                d += &format!("C{} {} {} {} {} {}", from.h_out.x, from.h_out.y, to.h_in.x, to.h_in.y, to.p.x, to.p.y);
+            }
+            if sp.closed {
+                d += "Z";
+            }
+        }
+        let [r, g, b] = p.color;
+        let paint = match p.stroke {
+            Some(width) => format!("fill=\"none\" stroke=\"#{r:02x}{g:02x}{b:02x}\" stroke-width=\"{width}\""),
+            None => format!("fill=\"#{r:02x}{g:02x}{b:02x}\" fill-rule=\"evenodd\""),
+        };
+        out += &format!("<path {paint} d=\"{d}\"/>\n");
+    }
+    out + "</svg>\n"
+}
+
+/// Every anchor and handle of a trace, bit for bit.
+fn path_bits(res: &TraceResult) -> Vec<u64> {
+    let mut bits = vec![];
+    for p in &res.paths {
+        for sp in &p.path.subpaths {
+            bits.push(u64::from(sp.closed) | (sp.anchors.len() as u64) << 1);
+            for a in &sp.anchors {
+                bits.extend([a.p, a.h_in, a.h_out].iter().flat_map(|q| [q.x.to_bits(), q.y.to_bits()]));
+            }
+        }
+    }
+    bits
+}
+
+#[test]
+fn fitting_shared_pieces_once_changes_nothing() {
+    let taken = fit::SHARED_TAKEN.load(std::sync::atomic::Ordering::Relaxed);
+    let mut cases = 0;
+    for seed in 0..6u64 {
+        let (w, h) = (56 + seed as u32 * 4, 48);
+        for (mode, colors) in [(Mode::BlackAndWhite, 2), (Mode::Grayscale, 4), (Mode::Color, 3), (Mode::Color, 6), (Mode::Color, 16)] {
+            let img = blobs(seed, w, h, colors.min(8) as usize);
+            for (paths, noise) in [(0.0, 0), (25.0, 1), (50.0, 3), (75.0, 8), (100.0, 25), (50.0, 0)] {
+                let snap = seed % 2 == 1;
+                let params = TraceParams {
+                    mode,
+                    colors,
+                    paths,
+                    noise,
+                    corners: 25.0 * (seed % 5) as f64,
+                    snap_curves_to_lines: snap,
+                    shapes: seed == 4,
+                    ignore_white: seed % 3 == 0,
+                    auto_grouping: seed == 2,
+                    ..TraceParams::default()
+                };
+                let shared = trace(&img, &params);
+                let alone = trace_unshared(&img, &params);
+                let at = format!("seed {seed}, {mode:?} {colors}, Paths {paths}, Noise {noise}");
+                assert!(!shared.paths.is_empty(), "{at}: nothing traced");
+                assert_eq!(svg(&shared, w, h), svg(&alone, w, h), "{at}: the SVGs differ");
+                assert_eq!(path_bits(&shared), path_bits(&alone), "{at}: the path data differ");
+                assert_eq!(shared, alone, "{at}");
+                cases += 1;
+            }
+        }
+    }
+    assert_eq!(cases, 180);
+    // The store is used: neighbours took fits from it.
+    assert!(fit::SHARED_TAKEN.load(std::sync::atomic::Ordering::Relaxed) > taken + 1000);
+}

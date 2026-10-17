@@ -506,7 +506,7 @@ pub fn trace_within(img: &Raster, params: &TraceParams, max_anchors: usize) -> R
     if w == 0 || h == 0 || img.rgba.len() != w * h * 4 {
         return Ok(TraceResult::default());
     }
-    let mut out = trace_paths(img, params, max_anchors)?;
+    let mut out = trace_paths(img, params, max_anchors, true)?;
     if params.auto_grouping {
         // Abutting areas cannot overlap; stacked layers, Logo's shapes and stroked lines can.
         let stacked = params.method == Method::Overlapping || params.mode == Mode::Logo || params.strokes;
@@ -515,7 +515,21 @@ pub fn trace_within(img: &Raster, params: &TraceParams, max_anchors: usize) -> R
     Ok(out)
 }
 
-fn trace_paths(img: &Raster, params: &TraceParams, max_anchors: usize) -> Result<TraceResult, TraceError> {
+/// [`trace`] with every piece of every outline fitted by each region it bounds, as if the shared
+/// fits were not kept (for the test that keeping them changes nothing).
+#[cfg(test)]
+pub(crate) fn trace_unshared(img: &Raster, params: &TraceParams) -> TraceResult {
+    let mut out = trace_paths(img, params, usize::MAX, false).unwrap_or_default();
+    if params.auto_grouping {
+        let stacked = params.method == Method::Overlapping || params.mode == Mode::Logo || params.strokes;
+        out.parents = group::parents(&out.paths, img.width as usize, img.height as usize, stacked);
+    }
+    out
+}
+
+/// The paths of a trace. `share`: a piece of outline between two regions is fitted once and the
+/// fit reused, reversed, by the other region (Abutting only: stacked layers share no edges).
+fn trace_paths(img: &Raster, params: &TraceParams, max_anchors: usize, share: bool) -> Result<TraceResult, TraceError> {
     let (w, h) = (img.width as usize, img.height as usize);
     if params.mode == Mode::Logo {
         return logo::trace_logo(img, params, max_anchors);
@@ -612,6 +626,7 @@ fn trace_paths(img: &Raster, params: &TraceParams, max_anchors: usize) -> Result
         h,
         anchors: AtomicUsize::new(0),
         max_anchors,
+        shared: (share && params.method != Method::Overlapping).then(fit::SharedFits::default),
     };
     let mut out = TraceResult::default();
     // A layer takes about ten bytes a pixel of its box while it is traced (its mask, the labels
@@ -679,6 +694,9 @@ struct Layers<'a> {
     /// Anchor points made so far, by every layer.
     anchors: AtomicUsize,
     max_anchors: usize,
+    /// Pieces of outline fitted by one region and not yet taken by the region on their other side
+    /// (see [`fit::fit_loop`]); none when each region fits its own.
+    shared: Option<fit::SharedFits>,
 }
 
 impl Layers<'_> {
@@ -924,7 +942,8 @@ impl Layers<'_> {
             // (`hard`: some of the outline has no anti-aliasing, and is known less exactly.)
             let hard = std::cell::Cell::new(false);
             let fit = |l: &Loop| {
-                let (sp, is_hard) = fit::fit_loop(l, w, h, &|c| (self.shift(c), self.neighbour(c)), &|x, y| self.junction(x, y), &self.style)?;
+                let (sp, is_hard) =
+                    fit::fit_loop(l, w, h, &|c| (self.shift(c), self.neighbour(c)), &|x, y| self.junction(x, y), &self.style, self.shared.as_ref())?;
                 hard.set(hard.get() || is_hard);
                 Some(sp)
             };

@@ -127,28 +127,68 @@ fn snap_upright(segs: &mut [Cubic], closed: bool, fixed_ends: bool) {
 /// starts (it is fitted clockwise from its leftmost point): the outline of a shape and the hole it
 /// leaves in the shape around it are one curve.
 pub(crate) fn fit_closed(pts: &[Point], style: &Style) -> Option<Vec<Cubic>> {
-    let n = pts.len();
-    let area2: f64 = (0..n).map(|i| pts[i].x * pts[(i + 1) % n].y - pts[(i + 1) % n].x * pts[i].y).sum();
-    let flip = area2 < 0.0;
-    let mut pts = pts.to_vec();
-    if flip {
-        pts.reverse();
+    let canon = Canonical::closed(pts);
+    let segs = fit_closed_canonical(&canon, style)?;
+    Some(if canon.flip { reversed(segs) } else { segs })
+}
+
+/// A loop or piece in the form it is fitted in, whichever way it runs and wherever it starts: a
+/// loop clockwise from its leftmost point, a piece from its end further left.
+struct Canonical {
+    pts: Vec<Point>,
+    /// The canonical form runs the other way from the points given.
+    flip: bool,
+    /// A loop: twice its signed area as given. A piece: unused.
+    area2: f64,
+}
+
+impl Canonical {
+    fn closed(pts: &[Point]) -> Self {
+        let n = pts.len();
+        let area2: f64 = (0..n).map(|i| pts[i].x * pts[(i + 1) % n].y - pts[(i + 1) % n].x * pts[i].y).sum();
+        let flip = area2 < 0.0;
+        let mut pts = pts.to_vec();
+        if flip {
+            pts.reverse();
+        }
+        let start = (0..n).min_by(|&i, &j| before(pts[i], pts[j])).unwrap_or(0);
+        pts.rotate_left(start);
+        Self { pts, flip, area2 }
     }
-    let start = (0..n).min_by(|&i, &j| before(pts[i], pts[j])).unwrap_or(0);
-    pts.rotate_left(start);
+
+    fn open(pts: &[Point]) -> Self {
+        let n = pts.len();
+        let flip = match (pts.first(), pts.last()) {
+            (Some(&first), Some(&last)) => match before(first, last) {
+                std::cmp::Ordering::Equal => n > 3 && before(pts[1], pts[n - 2]).is_gt(),
+                order => order.is_gt(),
+            },
+            _ => false,
+        };
+        let mut pts = pts.to_vec();
+        if flip {
+            pts.reverse();
+        }
+        Self { pts, flip, area2: 0.0 }
+    }
+}
+
+/// [`fit_closed`] of a loop already in its canonical form, in that form.
+fn fit_closed_canonical(canon: &Canonical, style: &Style) -> Option<Vec<Cubic>> {
+    let (pts, area2) = (&canon.pts, canon.area2);
     let mut stats = Stats::default();
-    let mut segs = fit_outline(&pts, style, &mut stats)?;
+    let mut segs = fit_outline(pts, style, &mut stats)?;
     // A fit that strayed was replaced by a plain one that nothing has checked: one that strays too
     // (a wild handle on a tiny or ragged loop) gives way to the outline's own points.
-    if stats.reverted > 0 && !all_within(&sample_cubics(&segs, 0.25), &resample_closed(&pts, 0.5).map_or_else(|| pts.clone(), |(p, _)| p), 1.5) {
-        segs = polygon(&pts, style.tol);
+    if stats.reverted > 0 && !all_within(&sample_cubics(&segs, 0.25), &resample_closed(pts, 0.5).map_or_else(|| pts.clone(), |(p, _)| p), 1.5) {
+        segs = polygon(pts, style.tol);
     }
     // A coarse fit of a tiny loop can be a single cubic. A closed editable
     // subpath needs at least two anchors, so that fit would silently discard
     // a component (or hole) which survived Noise. Keep the positioned outline
     // instead; do not simplify it again with the tolerance that collapsed it.
     if segs.len() < 2 {
-        segs = polygon(&pts, 0.0);
+        segs = polygon(pts, 0.0);
     }
     if style.upright {
         snap_upright(&mut segs, true, false);
@@ -166,9 +206,9 @@ pub(crate) fn fit_closed(pts: &[Point], style: &Style) -> Option<Vec<Cubic>> {
         })
         .sum();
     if area2.abs() > 1e-8 && fitted_area.abs() < 1e-8 {
-        segs = polygon(&pts, 0.0);
+        segs = polygon(pts, 0.0);
     }
-    Some(if flip { reversed(segs) } else { segs })
+    Some(segs)
 }
 
 /// A piece of a loop between two junctions fitted, from its first point to its last. The same
@@ -176,21 +216,20 @@ pub(crate) fn fit_closed(pts: &[Point], style: &Style) -> Option<Vec<Cubic>> {
 /// edge two regions share is one curve. `fixed_ends`: its ends are junctions and stay put (a centre
 /// line's ends are its own).
 pub(crate) fn fit_piece(pts: &[Point], style: &Style, fixed_ends: bool) -> Vec<Cubic> {
+    let canon = Canonical::open(pts);
+    let segs = fit_piece_canonical(&canon.pts, style, fixed_ends);
+    if canon.flip { reversed(segs) } else { segs }
+}
+
+/// [`fit_piece`] of a piece already in its canonical form, in that form.
+fn fit_piece_canonical(pts: &[Point], style: &Style, fixed_ends: bool) -> Vec<Cubic> {
     let n = pts.len();
     let (Some(&first), Some(&last)) = (pts.first(), pts.last()) else { return vec![] };
-    let flip = match before(first, last) {
-        std::cmp::Ordering::Equal => n > 3 && before(pts[1], pts[n - 2]).is_gt(),
-        order => order.is_gt(),
-    };
-    let mut pts = pts.to_vec();
-    if flip {
-        pts.reverse();
-    }
-    let mut segs = fit_open(&pts, style, &mut Stats::default());
+    let mut segs = fit_open(pts, style, &mut Stats::default());
     // Nothing else checks this fit: one that strays gives way to the piece's own points.
-    if !all_within(&sample_cubics(&segs, 0.25), &resample_open(&pts, 0.5).map_or_else(|| pts.clone(), |(p, _)| p), 1.5) {
+    if !all_within(&sample_cubics(&segs, 0.25), &resample_open(pts, 0.5).map_or_else(|| pts.to_vec(), |(p, _)| p), 1.5) {
         let mut keep = vec![false; n];
-        rdp(&pts, 0, n - 1, style.tol, &mut keep);
+        rdp(pts, 0, n - 1, style.tol, &mut keep);
         keep[0] = true;
         keep[n - 1] = true;
         let kept: Vec<Point> = (0..n).filter(|&i| keep[i]).map(|i| pts[i]).collect();
@@ -208,14 +247,15 @@ pub(crate) fn fit_piece(pts: &[Point], style: &Style, fixed_ends: bool) -> Vec<C
             segs = pts.windows(2).filter(|p| p[0] != p[1]).map(|p| [p[0], p[0], p[1], p[1]]).collect();
         }
     }
-    if flip { reversed(segs) } else { segs }
+    segs
 }
 
 /// Fit one loop of a `w × h` image into a closed Bézier subpath (pixel coordinates): its points
 /// are placed to a fraction of a pixel ([`subpixel::outline`], which explains `across`) and fitted
 /// as Flat Logo mode fits its outlines (corners restored, straight runs as lines, the rest as few
 /// curves as `style.tol` allows), piece by piece between its junctions, so that the regions on
-/// either side of an edge get the same curve for it.
+/// either side of an edge get the same curve for it. With `shared`, a piece is fitted only once
+/// for the two regions it lies between: the second takes the first one's fit, reversed.
 pub(crate) fn fit_loop(
     l: &Loop,
     w: usize,
@@ -223,6 +263,7 @@ pub(crate) fn fit_loop(
     across: &dyn Fn(Crack) -> (f64, u32),
     junction_at: &dyn Fn(i32, i32) -> Option<Point>,
     style: &Style,
+    shared: Option<&SharedFits>,
 ) -> Option<(SubPath, bool)> {
     let pieces = subpixel::outline(l, w, h, across, junction_at);
     let mut segs: Vec<Cubic> = Vec::new();
@@ -235,13 +276,58 @@ pub(crate) fn fit_loop(
             style.circle_tol *= 1.8;
             style.sigma = 0.9;
         }
-        if piece.closed {
+        if let Some(store) = shared {
+            let fit = fit_shared(piece, &style, store)?;
+            if piece.closed {
+                segs = fit;
+            } else {
+                segs.extend(fit);
+            }
+        } else if piece.closed {
             segs = fit_closed(&piece.pts, &style)?;
         } else {
             segs.extend(fit_piece(&piece.pts, &style, true));
         }
     }
     Some((subpath(&segs, true)?, pieces.iter().any(|p| p.hard)))
+}
+
+/// Fitted pieces kept for the region on their other side, by their canonical form (see
+/// [`fit_loop`]).
+pub(crate) type SharedFits = std::sync::Mutex<std::collections::HashMap<SharedKey, Vec<Cubic>>>;
+
+/// A piece's canonical points (their bits), whether it is a whole loop or hard, and the tolerance.
+pub(crate) type SharedKey = (Vec<u64>, bool, bool, u64);
+
+/// Fits taken from the store so far, by every trace (so that a test can tell that it is used).
+#[cfg(test)]
+pub(crate) static SHARED_TAKEN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// A piece fitted once for both regions of it: the first region to reach it fits its canonical
+/// form and leaves the fit in `store`; the second takes it (and removes it), reversed if it runs
+/// the other way. The same as fitting it twice, because [`fit_piece`] and [`fit_closed`] fit the
+/// canonical form anyway, and only a piece with exactly the same points (bit for bit) and style
+/// is taken.
+fn fit_shared(piece: &subpixel::Piece, style: &Style, store: &SharedFits) -> Option<Vec<Cubic>> {
+    let canon = if piece.closed { Canonical::closed(&piece.pts) } else { Canonical::open(&piece.pts) };
+    let key: SharedKey = (canon.pts.iter().flat_map(|p| [p.x.to_bits(), p.y.to_bits()]).collect(), piece.closed, piece.hard, style.tol.to_bits());
+    // (A poisoned lock only loses the reuse: the piece is fitted here.)
+    let found = store.lock().ok().and_then(|mut m| m.remove(&key));
+    let segs = match found {
+        Some(segs) => {
+            #[cfg(test)]
+            SHARED_TAKEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            segs
+        }
+        None => {
+            let segs = if piece.closed { fit_closed_canonical(&canon, style)? } else { fit_piece_canonical(&canon.pts, style, true) };
+            if let Ok(mut m) = store.lock() {
+                m.insert(key, segs.clone());
+            }
+            segs
+        }
+    };
+    Some(if canon.flip { reversed(segs) } else { segs })
 }
 
 /// A chain of cubics as a subpath: closed (its end joins its start) or open. A straight piece has

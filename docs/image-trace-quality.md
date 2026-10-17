@@ -1,10 +1,35 @@
 # Image Trace quality
 
-> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (Gradients: grown over noise and soft rims)
+> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-17 · **Change:** minor (Image Trace: each shared piece of outline fitted once; earlier: Gradients: grown over noise and soft rims)
 
 What Image Trace (`crates/trace`) makes of images whose right answer is known, measured by a harness and
 compared with the numbers before each change. Nothing here is a judgement by eye, and nothing is compared
 with any other product except the open tracer named under [Yardstick](#4-yardstick).
+
+
+## Shared pieces fitted once
+
+In Abutting traces (Black and White, Grayscale, Color), the outline of each region is cut into pieces
+between junctions, and each piece is fitted in a canonical form (a piece from its end further left, a
+whole loop clockwise from its leftmost point), so the two regions on either side of an edge get the
+same curve for it. Each region used to fit its pieces itself, so every edge two regions share was
+fitted twice. Now the first region to reach a piece leaves its canonical fit in a store keyed by the
+piece's exact points (their bits), whether it is hard and the tolerance; the region on the other side
+takes it from there, reversed if it runs the other way, and removes it. A piece is only taken when its
+points are the same bit for bit, so the output cannot change; Overlapping (stacked layers share no
+edges) keeps fitting each layer alone.
+
+The output is identical: `fitting_shared_pieces_once_changes_nothing` makes 180 traces of 30 seeded code-drawn
+pictures (soft blobs over a ramp, pixel noise, one-pixel slivers) in Black and White, Grayscale and
+Color with 3, 6 and 16 colours at six Paths/Noise pairs (Paths 0 to 100, Noise 0 to 25) and varied
+Corners, Snap Curves To Lines, Shapes, Ignore White and Auto Grouping, with and without the store,
+and compares the SVG (every coordinate written exactly) and every anchor and handle bit for bit; it
+also checks that the store was used. Time (release build, 4 cores, whole 1000 × 1000 traces, best of 7
+in each of three alternating rounds, the fastest kept): a picture of 36 large blobs at Noise 25 (the
+default) 99.5 vs 93.2 ms (Black and White), 194.1 vs 194.2 ms (Color, 6 colours), 192.5 vs 196.2 ms
+(Color, 16 colours); 400 smaller blobs at Noise 8: 141.5 vs 142.1 ms, 220.9 vs 216.4 ms, 248.6 vs
+224.2 ms. Fitting is a small part of these traces, so most differences are within the run-to-run
+spread; the clearest gain is with many colours and many pieces (−10%).
 
 
 ## Noise threshold stability (local development, 2026-10-14)
