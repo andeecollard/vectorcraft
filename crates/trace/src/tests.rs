@@ -1442,11 +1442,6 @@ fn a_higher_paths_never_gives_fewer_segments() {
             [p[0], p[1], p[2], 255]
         });
         for mode in [Mode::Color, Mode::BlackAndWhite] {
-            // (Seed 16 in Black and White goes from 140 segments at Paths 0 to 136 at Paths 25,
-            // with or without the collapsed-loop fits: another cause, still open.)
-            if seed == 16 && mode == Mode::BlackAndWhite {
-                continue;
-            }
             for noise in [1, 3] {
                 let counts: Vec<usize> = [0.0, 25.0, 50.0, 75.0, 100.0]
                     .iter()

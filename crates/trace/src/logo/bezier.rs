@@ -80,13 +80,16 @@ fn rec(p: &[Point], t1: Vec2, t2: Vec2, tol: f64, depth: usize, out: &mut Vec<Cu
     }
     let mut u = chord(p);
     let Some(mut c) = fit_one(p, &u, t1, t2) else { return };
+    // Improve the parametrisation a few times, keeping the best fit: a step can make the fit
+    // worse before the next makes it better. The steps taken, and so the best fit and where it is
+    // split, are the same whatever the tolerance: the tolerance only says whether a fit is good
+    // enough. So a looser tolerance accepts every fit a tighter one does, and splits only where
+    // the tighter one splits too: it never gives more pieces. (Giving up on a fit more than six
+    // tolerances off, as before, made a looser tolerance try harder on a fit that a tighter one
+    // split at once, and split it into more pieces.)
+    let mut best = (max_err(&c, p, &u), c);
     for _ in 0..4 {
-        let (e, _) = max_err(&c, p, &u);
-        if e < tol {
-            out.push(c);
-            return;
-        }
-        if e > tol * 6.0 {
+        if best.0.0 < tol {
             break;
         }
         u = reparam(&c, p, &u);
@@ -94,8 +97,12 @@ fn rec(p: &[Point], t1: Vec2, t2: Vec2, tol: f64, depth: usize, out: &mut Vec<Cu
             Some(n) => c = n,
             None => break,
         }
+        let now = max_err(&c, p, &u);
+        if now.0 < best.0.0 {
+            best = (now, c);
+        }
     }
-    let (e, split) = max_err(&c, p, &u);
+    let ((e, split), c) = best;
     if e < tol || depth >= MAX_DEPTH || p.len() < 6 {
         out.push(c);
         return;
@@ -192,5 +199,36 @@ mod tests {
         assert!(fit_cubics(&[Point::new(0.0, 0.0), Point::new(1.0, 0.0), Point::new(2.0, 0.0)], t, t, 0.0).is_empty());
         // Duplicate points do not divide by zero.
         let _ = fit_cubics(&[Point::new(1.0, 1.0); 10], t, t, 0.1);
+    }
+
+    /// A looser tolerance never gives more pieces: on seeded wobbly runs of points (blobs,
+    /// spirals and noisy lines), the count of cubics never rises as the tolerance grows from
+    /// 0.02 to 3 px in 300 steps.
+    #[test]
+    fn a_looser_tolerance_never_gives_more_pieces() {
+        let mut s: u64 = 20261017;
+        let mut next = move || {
+            s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            ((s >> 33) as f64) / f64::from(1u32 << 31) - 0.5
+        };
+        for run in 0..24 {
+            let n = 40 + run * 9;
+            let (a, b, c) = (next() * 8.0, next() * 6.0, next());
+            let pts: Vec<Point> = (0..n)
+                .map(|i| {
+                    let t = i as f64 / n as f64 * (2.0 + run as f64 * 0.2);
+                    let r = 10.0 + a * (3.0 * t).sin() + b * (5.0 * t + c).cos() + 0.4 * next();
+                    Point::new(r * t.cos() + t * 2.0, r * t.sin())
+                })
+                .collect();
+            let (t1, t2) = (tangent(&pts, 0, 3, 1), tangent(&pts, pts.len() - 1, 3, -1));
+            let mut last = usize::MAX;
+            for k in 0..300 {
+                let tol = 0.02 + 2.98 * k as f64 / 299.0;
+                let fit = fit_cubics(&pts, t1, t2, tol);
+                assert!(fit.len() <= last, "run {run}: {} pieces at {tol:.3} px, {last} at a tighter tolerance", fit.len());
+                last = fit.len();
+            }
+        }
     }
 }

@@ -1,10 +1,41 @@
 # Image Trace quality
 
-> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-16 · **Change:** minor (Image Trace: a higher Paths never gives fewer segments on collapsed loops)
+> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-17 · **Change:** minor (Image Trace: a looser tolerance never splits a curve into more pieces; earlier: a higher Paths never gives fewer segments on collapsed loops)
 
 What Image Trace (`crates/trace`) makes of images whose right answer is known, measured by a harness and
 compared with the numbers before each change. Nothing here is a judgement by eye, and nothing is compared
 with any other product except the open tracer named under [Yardstick](#4-yardstick).
+
+
+## A looser tolerance never gives more pieces
+
+The curve fitter (Schneider's algorithm, `logo::bezier`) fits one cubic to a run of points, improves
+its parametrisation up to four times, and splits the run where the error is largest until each piece is
+within the tolerance. It gave up improving a fit once the error was more than six tolerances, so the
+steps it took depended on the tolerance: on seed 16 in Black and White (the image left out above), the
+piece between two junctions first fitted 2.12 px off, the next step made it 4.62 px off, and then it
+improved to under 1 px. At Paths 25 (0.53 px) the fitter gave up at 4.62 px (over 3.2 px) and split once:
+2 cubics. At Paths 0 (0.78 px) 4.62 px was under 4.7 px, so it went on to under 1 px, still over the
+tolerance, split there, and needed 3 cubics: a looser fit with more pieces (140 segments at Paths 0,
+136 at 25; 98 and 95 at Noise 3).
+
+Now the fitter always takes the same steps, whatever the tolerance, and keeps the best fit of them; the
+tolerance only decides whether that fit is good enough. So a looser tolerance accepts every fit a
+tighter one accepts and splits a run only where the tighter one splits it too: per run of points, the
+number of cubics can only fall as the tolerance grows. Tests (code-drawn): `a_looser_tolerance_never_gives_more_pieces`
+fits 24 seeded wobbly runs at 300 tolerances from 0.02 to 3 px (it fails without the change: 15 pieces
+at 0.05 px, 14 at a tighter tolerance); `a_higher_paths_never_gives_fewer_segments` now includes seed 16
+in Black and White.
+
+Every trace changes slightly. Before → after on the quality harness's inputs (section 1, all sizes and
+variants; `TRACE_QUALITY_MP=1`): Default edge ΔE 10.05 → 9.97, off mean 0.091 → 0.089 px, anchors 17 → 18;
+6 Colors 5.06 → 4.99, 0.143 → 0.140 px, 55 → 57; 16 Colors 4.97 → 4.96, 0.145 → 0.142 px, 66 → 69;
+3 Colors off max 0.91 → 0.42 px; Black and White Logo unchanged within 0.01; High Fidelity Photo 9929 →
+9855 anchors; 6 Colors with Shapes off max 0.60 → 0.74 px. Time (release, 4 cores, whole 1000 × 1000
+traces, best of 7, two alternating rounds): 36 large blobs at Noise 25: Black and White 111.9 → 111.1 ms,
+Color 6 colours 209.5 → 209.4 ms, Color 16 colours 207.2 → 205.5 ms; 400 smaller blobs at Noise 8:
+152.8 → 155.9 ms, 245.1 → 251.3 ms, 253.4 → 266.7 ms (fits far off now take their four steps before they
+are split: up to 5% slower), with 0.1–1.3% fewer anchors.
 
 
 ## Collapsed loops keep few segments
@@ -23,8 +54,8 @@ soft blobs in four colours plus pixel noise, Color and Black and White, Noise 1 
 Paths 0, 25, 50, 75 and 100 must not fall). Before, six runs fell, e.g. 125 → 79 segments from
 Paths 0 to 25 (seed 21, Color, Noise 1) and 71 → 63 → 52 from Paths 0 to 50 (seed 3, Black and
 White, Noise 3); now they are 75 → 79 and 41 → 48 → 52. One image (seed 16 in Black and White) still
-falls from 140 to 136 segments between Paths 0 and 25, before and after this change; that fall has
-another cause, still open, and the image is left out of the test. The crate's other tests pass unchanged.
+fell from 140 to 136 segments between Paths 0 and 25; that fall had another cause, fixed in the next
+section, and the image is now in the test. The crate's other tests pass unchanged.
 
 ## Noise threshold stability (local development, 2026-10-14)
 
@@ -1029,6 +1060,7 @@ One trace at a time on this machine (all cores); memory is the peak allocated ab
 
 | date | change |
 |:--|:--|
+| 2026-10-17 | The curve fitter takes the same steps whatever the tolerance and keeps the best fit, so a looser Paths never splits a curve into more pieces; the seed-16 image is back in the Paths monotonicity test |
 | 2026-10-16 | Image Trace: a loop or junction-returning piece whose fit collapsed to one cubic keeps the fewest segments that hold its area and course instead of every positioned point, so a higher Paths no longer gives fewer segments on code-drawn noisy images (six falling runs to none; one other cause remains). |
 | 2026-10-14 | Closed fitting retains the positioned boundary when straightening collapses a nonzero-area loop; four generated regressions; preset scores unchanged |
 | 2026-10-14 | Tiny closed fits retain their positioned outlines instead of losing islands/holes; three generated regression tests; quality-harness baseline unchanged |
